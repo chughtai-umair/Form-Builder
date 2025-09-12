@@ -282,7 +282,7 @@ export function GeneratedForm() {
                       className="cursor-pointer hover:bg-accent transition-colors"
                       onClick={() => addField(component)}
                     >
-                      <CardContent className="p-3">
+                      <CardContent className="px-3 py-2">
                         <div className="flex items-center space-x-2">
                           <IconComponent className="h-4 w-4" />
                           <span className="text-sm font-medium">
@@ -358,8 +358,8 @@ export function GeneratedForm() {
                 )}
 
                 {selectedFields.length > 0 && (
-                  <div className="pt-4">
-                    <Button className="w-full">Submit Form</Button>
+                  <div>
+                    <Button className="w-1/8">Submit</Button>
                   </div>
                 )}
               </CardContent>
