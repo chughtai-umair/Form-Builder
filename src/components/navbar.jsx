@@ -40,7 +40,7 @@ import {
   Component,
 } from "lucide-react";
 import { useTheme } from "@/hooks/use-theme";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useState } from "react";
 
 export function Navbar({ className, ...props }) {

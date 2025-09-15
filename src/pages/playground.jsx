@@ -485,6 +485,8 @@ export function GeneratedForm() {`;
                 ? "number"
                 : field.componentId === "percentage"
                 ? "number"
+                : field.componentId === "phone"
+                ? "number"
                 : field.componentId;
             const stepAttr =
               field.componentId === "currency"
