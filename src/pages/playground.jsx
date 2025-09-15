@@ -6,11 +6,30 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Checkbox } from "@/components/ui/checkbox";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Calendar } from "@/components/ui/calendar";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { CalendarIcon } from "lucide-react";
+import { format } from "date-fns";
+import { cn } from "@/lib/utils";
 import {
   Type,
   Mail,
   Lock,
-  Calendar,
+  Calendar as CalendarIconComponent,
   CheckSquare,
   List,
   FileText,
@@ -21,26 +40,43 @@ import {
   Edit,
   Code,
   FileJson,
+  Upload,
+  ToggleLeft,
+  Circle,
+  Star,
+  Clock,
+  Globe,
+  DollarSign,
+  Percent,
 } from "lucide-react";
 
-// Form Builder Components List
+// Form Builder Components List - Enhanced with all Shadcn UI components
 const formComponents = [
   { id: "text", name: "Text Input", icon: Type, type: "input" },
   { id: "email", name: "Email", icon: Mail, type: "input" },
   { id: "password", name: "Password", icon: Lock, type: "input" },
   { id: "number", name: "Number", icon: Hash, type: "input" },
   { id: "phone", name: "Phone", icon: Phone, type: "input" },
+  { id: "url", name: "URL", icon: Globe, type: "input" },
   { id: "textarea", name: "Textarea", icon: FileText, type: "textarea" },
   { id: "select", name: "Select", icon: List, type: "select" },
   { id: "checkbox", name: "Checkbox", icon: CheckSquare, type: "checkbox" },
-  { id: "date", name: "Date", icon: Calendar, type: "date" },
+  { id: "radio", name: "Radio Group", icon: Circle, type: "radio" },
+  { id: "switch", name: "Switch", icon: ToggleLeft, type: "switch" },
+  { id: "date", name: "Date", icon: CalendarIconComponent, type: "date" },
+  { id: "time", name: "Time", icon: Clock, type: "input" },
+  { id: "file", name: "File Upload", icon: Upload, type: "file" },
   { id: "address", name: "Address", icon: MapPin, type: "input" },
+  { id: "rating", name: "Rating", icon: Star, type: "rating" },
+  { id: "currency", name: "Currency", icon: DollarSign, type: "input" },
+  { id: "percentage", name: "Percentage", icon: Percent, type: "input" },
 ];
 
 export function Playground() {
   const [selectedFields, setSelectedFields] = useState([]);
   const [selectedField, setSelectedField] = useState(null);
   const [activeTab, setActiveTab] = useState("edit");
+  const [dateValues, setDateValues] = useState({});
 
   // Add field to center area
   const addField = (component) => {
@@ -52,7 +88,12 @@ export function Playground() {
       label: component.name,
       placeholder: `Enter ${component.name.toLowerCase()}`,
       required: false,
-      options: component.id === "select" ? ["Option 1", "Option 2"] : [],
+      options: component.id === "select" ? ["Option 1", "Option 2"] : 
+               component.id === "radio" ? ["Option 1", "Option 2"] : [],
+      min: component.id === "rating" ? 1 : undefined,
+      max: component.id === "rating" ? 5 : undefined,
+      step: component.id === "percentage" ? 0.1 : 
+            component.id === "currency" ? 0.01 : undefined,
     };
     setSelectedFields([...selectedFields, newField]);
   };
@@ -79,7 +120,6 @@ export function Playground() {
       setSelectedField(null);
     }
   };
-
   // Generate JSON for selected field
   const generateFieldJSON = (field) => {
     return JSON.stringify(
@@ -92,24 +132,124 @@ export function Playground() {
         placeholder: field.placeholder,
         required: field.required,
         options: field.options || [],
+        min: field.min,
+        max: field.max,
+        step: field.step,
       },
       null,
       2
     );
   };
 
-  // Generate complete form code
+  // Generate complete form code - Smart imports based on used components
   const generateFormCode = () => {
-    const imports = `import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+    if (selectedFields.length === 0) {
+      return `// No fields selected. Please add some form fields to generate code.
 
 export function GeneratedForm() {
+  return (
+    <Card className="w-full max-w-md mx-auto">
+      <CardHeader>
+        <CardTitle>Generated Form</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <p className="text-muted-foreground">Add some form fields to see the generated code.</p>
+      </CardContent>
+    </Card>
+  );
+}`;
+    }
+
+    // Determine which components are actually used
+    const usedTypes = new Set(selectedFields.map(field => field.type));
+    const hasDateField = selectedFields.some(field => field.type === "date");
+    const hasSelectField = selectedFields.some(field => field.type === "select");
+    const hasTextareaField = selectedFields.some(field => field.type === "textarea");
+    const hasCheckboxField = selectedFields.some(field => field.type === "checkbox");
+    const hasRadioField = selectedFields.some(field => field.type === "radio");
+    const hasSwitchField = selectedFields.some(field => field.type === "switch");
+    const hasFileField = selectedFields.some(field => field.type === "file");
+    const hasRatingField = selectedFields.some(field => field.type === "rating");
+
+    // Build imports array based on what's actually used
+    const imports = [];
+    
+    // Always needed imports
+    imports.push('import { Button } from "@/components/ui/button";');
+    imports.push('import { Label } from "@/components/ui/label";');
+    imports.push('import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";');
+    
+    // Conditional imports - Smart import system
+    if (usedTypes.has("input") || hasFileField || hasRatingField) {
+      imports.push('import { Input } from "@/components/ui/input";');
+    }
+    
+    if (hasTextareaField) {
+      imports.push('import { Textarea } from "@/components/ui/textarea";');
+    }
+    
+    if (hasCheckboxField) {
+      imports.push('import { Checkbox } from "@/components/ui/checkbox";');
+    }
+    
+    if (hasRadioField) {
+      imports.push('import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";');
+    }
+    
+    if (hasSwitchField) {
+      imports.push('import { Switch } from "@/components/ui/switch";');
+    }
+    
+    if (hasSelectField) {
+      imports.push('import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";');
+    }
+    
+    if (hasDateField) {
+      imports.push('import { Calendar } from "@/components/ui/calendar";');
+      imports.push('import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";');
+      imports.push('import { CalendarIcon } from "lucide-react";');
+      imports.push('import { format } from "date-fns";');
+      imports.push('import { cn } from "@/lib/utils";');
+    }
+    
+    if (hasRatingField) {
+      imports.push('import { Star } from "lucide-react";');
+    }
+    
+    imports.push('import { useState } from "react";');
+
+    const importSection = imports.join('\n');
+
+    // Component start with smart state management
+    let componentStart = `
+export function GeneratedForm() {`;
+
+    // State management - only add if needed
+    if (hasDateField) {
+      componentStart += `
+  const [dateValues, setDateValues] = useState({});`;
+    }
+
+    componentStart += `
+  
   const handleSubmit = (e) => {
     e.preventDefault();
     const formData = new FormData(e.target);
-    const data = Object.fromEntries(formData);
+    const data = Object.fromEntries(formData);`;
+
+    if (hasDateField) {
+      componentStart += `
+    
+    // Add date values to form data
+    Object.keys(dateValues).forEach(key => {
+      if (dateValues[key]) {
+        data[key] = format(dateValues[key], "yyyy-MM-dd");
+      }
+    });`;
+    }
+
+    componentStart += `
+    
     console.log('Form Data:', data);
   };
 
@@ -121,86 +261,152 @@ export function GeneratedForm() {
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">`;
 
+    // Generate fields with proper Shadcn components
     const fields = selectedFields
       .map((field) => {
         switch (field.type) {
           case "input":
+            const inputType = field.componentId === "currency" ? "number" : 
+                            field.componentId === "percentage" ? "number" : 
+                            field.componentId;
+            const stepAttr = field.componentId === "currency" ? ' step="0.01"' :
+                           field.componentId === "percentage" ? ' step="0.1" max="100"' : '';
+            
             return `          <div className="space-y-2">
-            <Label htmlFor="${field.id}">${field.label}${
-              field.required ? " *" : ""
-            }</Label>
+            <Label htmlFor="${field.id}">${field.label}${field.required ? " *" : ""}</Label>
             <Input
               id="${field.id}"
               name="${field.id}"
-              type="${field.componentId}"
-              placeholder="${field.placeholder}"
-              ${field.required ? "required" : ""}
+              type="${inputType}"
+              placeholder="${field.placeholder}"${stepAttr}${field.required ? '\n              required' : ''}
             />
           </div>`;
+          
           case "textarea":
             return `          <div className="space-y-2">
-            <Label htmlFor="${field.id}">${field.label}${
-              field.required ? " *" : ""
-            }</Label>
-            <textarea
+            <Label htmlFor="${field.id}">${field.label}${field.required ? " *" : ""}</Label>
+            <Textarea
               id="${field.id}"
               name="${field.id}"
               placeholder="${field.placeholder}"
-              className="w-full p-2 border rounded"
-              rows={3}
-              ${field.required ? "required" : ""}
+              rows={3}${field.required ? '\n              required' : ''}
             />
           </div>`;
+          
           case "select":
+            const selectOptions = field.options?.map(option => 
+              `<SelectItem value="${option}">${option}</SelectItem>`
+            ).join('\n                ') || '';
+            
             return `          <div className="space-y-2">
-            <Label htmlFor="${field.id}">${field.label}${
-              field.required ? " *" : ""
-            }</Label>
-            <select
-              id="${field.id}"
-              name="${field.id}"
-              className="w-full p-2 border rounded"
-              ${field.required ? "required" : ""}
-            >
-              <option value="">Select an option</option>
-              ${field.options
-                ?.map(
-                  (option) => `<option value="${option}">${option}</option>`
-                )
-                .join("\n              ")}
-            </select>
+            <Label htmlFor="${field.id}">${field.label}${field.required ? " *" : ""}</Label>
+            <Select name="${field.id}"${field.required ? ' required' : ''}>
+              <SelectTrigger>
+                <SelectValue placeholder="${field.placeholder || "Select an option"}" />
+              </SelectTrigger>
+              <SelectContent>
+                ${selectOptions}
+              </SelectContent>
+            </Select>
           </div>`;
+          
           case "checkbox":
             return `          <div className="flex items-center space-x-2">
-            <input
-              type="checkbox"
+            <Checkbox
+              id="${field.id}"
+              name="${field.id}"${field.required ? '\n              required' : ''}
+            />
+            <Label htmlFor="${field.id}">${field.label}${field.required ? " *" : ""}</Label>
+          </div>`;
+          
+          case "radio":
+            const radioOptions = field.options?.map((option, index) => 
+              `<div className="flex items-center space-x-2">
+                <RadioGroupItem value="${option}" id="${field.id}_${index}" />
+                <Label htmlFor="${field.id}_${index}">${option}</Label>
+              </div>`
+            ).join('\n              ') || '';
+            
+            return `          <div className="space-y-2">
+            <Label>${field.label}${field.required ? " *" : ""}</Label>
+            <RadioGroup name="${field.id}"${field.required ? ' required' : ''}>
+              ${radioOptions}
+            </RadioGroup>
+          </div>`;
+          
+          case "switch":
+            return `          <div className="flex items-center space-x-2">
+            <Switch
               id="${field.id}"
               name="${field.id}"
-              ${field.required ? "required" : ""}
             />
-            <Label htmlFor="${field.id}">${field.label}${
-              field.required ? " *" : ""
-            }</Label>
+            <Label htmlFor="${field.id}">${field.label}${field.required ? " *" : ""}</Label>
           </div>`;
+          
+          case "date":
+            return `          <div className="space-y-2">
+            <Label>${field.label}${field.required ? " *" : ""}</Label>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  className={cn(
+                    "justify-start text-left font-normal",
+                    !dateValues["${field.id}"] && "text-muted-foreground"
+                  )}
+                >
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {dateValues["${field.id}"] ? format(dateValues["${field.id}"], "PPP") : "Pick a date"}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0">
+                <Calendar
+                  mode="single"
+                  selected={dateValues["${field.id}"]}
+                  onSelect={(date) => setDateValues(prev => ({ ...prev, "${field.id}": date }))}
+                  initialFocus
+                />
+              </PopoverContent>
+            </Popover>
+          </div>`;
+          
+          case "file":
+            return `          <div className="space-y-2">
+            <Label htmlFor="${field.id}">${field.label}${field.required ? " *" : ""}</Label>
+            <Input
+              id="${field.id}"
+              name="${field.id}"
+              type="file"${field.required ? '\n              required' : ''}
+            />
+          </div>`;
+          
+          case "rating":
+            return `          <div className="space-y-2">
+            <Label>${field.label}${field.required ? " *" : ""}</Label>
+            <div className="flex space-x-1">
+              {Array.from({ length: ${field.max || 5} }, (_, i) => (
+                <Star key={i} className="h-5 w-5 text-yellow-400 cursor-pointer" />
+              ))}
+            </div>
+          </div>`;
+          
           default:
             return `          <div className="space-y-2">
-            <Label htmlFor="${field.id}">${field.label}${
-              field.required ? " *" : ""
-            }</Label>
+            <Label htmlFor="${field.id}">${field.label}</Label>
             <Input
               id="${field.id}"
               name="${field.id}"
               placeholder="${field.placeholder}"
-              ${field.required ? "required" : ""}
             />
           </div>`;
         }
       })
       .join("\n\n");
 
-    const closing = `
+    const componentEnd = `
+          
           <Button type="submit" className="w-full">
-            Submit Form
+            Submit
           </Button>
         </form>
       </CardContent>
@@ -208,50 +414,184 @@ export function GeneratedForm() {
   );
 }`;
 
-    return imports + "\n\n" + fields + closing;
+    return importSection + componentStart + "\n\n" + fields + componentEnd;
+  };
+  // Add option to select/radio field
+  const addOption = () => {
+    if (selectedField && (selectedField.type === "select" || selectedField.type === "radio")) {
+      const currentLength = selectedField.options?.length || 0;
+      const newOptions = [...(selectedField.options || []), `Option ${currentLength + 1}`];
+      updateFieldSetting("options", newOptions);
+    }
   };
 
-  // Render form field
-  const renderFormField = (field) => {
-    const commonProps = {
-      placeholder: field.placeholder,
-      required: field.required,
-      className: "w-full",
-    };
+  // Remove option from select/radio field
+  const removeOption = (index) => {
+    if (selectedField && (selectedField.type === "select" || selectedField.type === "radio")) {
+      const newOptions = selectedField.options?.filter((_, i) => i !== index) || [];
+      updateFieldSetting("options", newOptions);
+    }
+  };
 
+  // Update option value
+  const updateOption = (index, value) => {
+    if (selectedField && (selectedField.type === "select" || selectedField.type === "radio")) {
+      const newOptions = [...(selectedField.options || [])];
+      newOptions[index] = value;
+      updateFieldSetting("options", newOptions);
+    }
+  };
+
+  // Render form field with proper Shadcn UI components
+  const renderFormField = (field) => {
     switch (field.type) {
       case "input":
-        return <Input type={field.componentId} {...commonProps} />;
+        const inputType = field.componentId === "currency" ? "number" : 
+                         field.componentId === "percentage" ? "number" : 
+                         field.componentId;
+        const stepAttr = field.componentId === "currency" ? { step: "0.01" } :
+                        field.componentId === "percentage" ? { step: "0.1", max: "100" } : {};
+        
+        return (
+          <div className="space-y-2">
+            <Label htmlFor={field.id}>{field.label}{field.required && " *"}</Label>
+            <Input
+              id={field.id}
+              type={inputType}
+              placeholder={field.placeholder}
+              {...stepAttr}
+              required={field.required}
+            />
+          </div>
+        );
+        
       case "textarea":
         return (
-          <textarea
-            className="w-full p-2 border rounded"
-            {...commonProps}
-            rows={3}
-          />
+          <div className="space-y-2">
+            <Label htmlFor={field.id}>{field.label}{field.required && " *"}</Label>
+            <Textarea
+              id={field.id}
+              placeholder={field.placeholder}
+              rows={3}
+              required={field.required}
+            />
+          </div>
         );
+        
       case "select":
         return (
-          <select className="w-full p-2 border rounded" {...commonProps}>
-            <option value="">Select an option</option>
-            {field.options?.map((option, index) => (
-              <option key={index} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
+          <div className="space-y-2">
+            <Label htmlFor={field.id}>{field.label}{field.required && " *"}</Label>
+            <Select required={field.required}>
+              <SelectTrigger>
+                <SelectValue placeholder={field.placeholder || "Select an option"} />
+              </SelectTrigger>
+              <SelectContent>
+                {field.options?.map((option, index) => (
+                  <SelectItem key={index} value={option}>{option}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         );
+        
       case "checkbox":
         return (
           <div className="flex items-center space-x-2">
-            <input type="checkbox" id={field.id} />
-            <Label htmlFor={field.id}>{field.label}</Label>
+            <Checkbox
+              id={field.id}
+              required={field.required}
+            />
+            <Label htmlFor={field.id}>{field.label}{field.required && " *"}</Label>
           </div>
         );
+        
+      case "radio":
+        return (
+          <div className="space-y-2">
+            <Label>{field.label}{field.required && " *"}</Label>
+            <RadioGroup required={field.required}>
+              {field.options?.map((option, index) => (
+                <div key={index} className="flex items-center space-x-2">
+                  <RadioGroupItem value={option} id={`${field.id}_${index}`} />
+                  <Label htmlFor={`${field.id}_${index}`}>{option}</Label>
+                </div>
+              ))}
+            </RadioGroup>
+          </div>
+        );
+        
+      case "switch":
+        return (
+          <div className="flex items-center space-x-2">
+            <Switch id={field.id} />
+            <Label htmlFor={field.id}>{field.label}{field.required && " *"}</Label>
+          </div>
+        );
+        
       case "date":
-        return <Input type="date" {...commonProps} />;
+        return (
+          <div className="space-y-2">
+            <Label>{field.label}{field.required && " *"}</Label>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  className={cn(
+                    "justify-start text-left font-normal",
+                    !dateValues[field.id] && "text-muted-foreground"
+                  )}
+                >
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {dateValues[field.id] ? format(dateValues[field.id], "PPP") : "Pick a date"}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0">
+                <Calendar
+                  mode="single"
+                  selected={dateValues[field.id]}
+                  onSelect={(date) => setDateValues(prev => ({ ...prev, [field.id]: date }))}
+                  initialFocus
+                />
+              </PopoverContent>
+            </Popover>
+          </div>
+        );
+        
+      case "file":
+        return (
+          <div className="space-y-2">
+            <Label htmlFor={field.id}>{field.label}{field.required && " *"}</Label>
+            <Input
+              id={field.id}
+              type="file"
+              required={field.required}
+            />
+          </div>
+        );
+        
+      case "rating":
+        return (
+          <div className="space-y-2">
+            <Label>{field.label}{field.required && " *"}</Label>
+            <div className="flex space-x-1">
+              {Array.from({ length: field.max || 5 }, (_, i) => (
+                <Star key={i} className="h-5 w-5 text-yellow-400 cursor-pointer" />
+              ))}
+            </div>
+          </div>
+        );
+        
       default:
-        return <Input {...commonProps} />;
+        return (
+          <div className="space-y-2">
+            <Label htmlFor={field.id}>{field.label}</Label>
+            <Input
+              id={field.id}
+              placeholder={field.placeholder}
+            />
+          </div>
+        );
     }
   };
 
@@ -424,67 +764,80 @@ export function GeneratedForm() {
                       }
                       className="mt-1"
                     />
-                  </div>
-
-                  <div className="flex items-center space-x-2">
-                    <input
-                      type="checkbox"
+                  </div>                  <div className="flex items-center space-x-2">
+                    <Checkbox
                       id="required"
                       checked={selectedField.required}
-                      onChange={(e) =>
-                        updateFieldSetting("required", e.target.checked)
-                      }
+                      onCheckedChange={(checked) => updateFieldSetting("required", checked)}
                     />
                     <Label htmlFor="required">Required Field</Label>
                   </div>
 
-                  {selectedField.componentId === "select" && (
+                  {/* Options for select and radio fields */}
+                  {(selectedField.type === "select" || selectedField.type === "radio") && (
                     <div>
-                      <Label>Options</Label>
-                      <div className="space-y-2 mt-2">
+                      <div className="flex justify-between items-center mb-2">
+                        <Label>Options</Label>
+                        <Button size="sm" onClick={addOption}>
+                          Add Option
+                        </Button>
+                      </div>
+                      <div className="space-y-2">
                         {selectedField.options?.map((option, index) => (
-                          <div key={index} className="flex space-x-2">
+                          <div key={index} className="flex gap-2">
                             <Input
                               value={option}
-                              onChange={(e) => {
-                                const newOptions = [...selectedField.options];
-                                newOptions[index] = e.target.value;
-                                updateFieldSetting("options", newOptions);
-                              }}
-                              className="flex-1"
+                              onChange={(e) => updateOption(index, e.target.value)}
+                              placeholder={`Option ${index + 1}`}
                             />
                             <Button
-                              variant="ghost"
                               size="sm"
-                              onClick={() => {
-                                const newOptions = selectedField.options.filter(
-                                  (_, i) => i !== index
-                                );
-                                updateFieldSetting("options", newOptions);
-                              }}
-                              className="px-2"
+                              variant="outline"
+                              onClick={() => removeOption(index)}
                             >
                               ×
                             </Button>
                           </div>
                         ))}
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            const newOptions = [
-                              ...(selectedField.options || []),
-                              `Option ${
-                                (selectedField.options?.length || 0) + 1
-                              }`,
-                            ];
-                            updateFieldSetting("options", newOptions);
-                          }}
-                          className="w-full"
-                        >
-                          Add Option
-                        </Button>
                       </div>
+                    </div>
+                  )}
+
+                  {/* Rating field settings */}
+                  {selectedField.type === "rating" && (
+                    <>
+                      <div>
+                        <Label htmlFor="min">Min Rating</Label>
+                        <Input
+                          id="min"
+                          type="number"
+                          value={selectedField.min || 1}
+                          onChange={(e) => updateFieldSetting("min", parseInt(e.target.value) || 1)}
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="max">Max Rating</Label>
+                        <Input
+                          id="max"
+                          type="number"
+                          value={selectedField.max || 5}
+                          onChange={(e) => updateFieldSetting("max", parseInt(e.target.value) || 5)}
+                        />
+                      </div>
+                    </>
+                  )}
+
+                  {/* Step for currency and percentage fields */}
+                  {(selectedField.componentId === "currency" || selectedField.componentId === "percentage") && (
+                    <div>
+                      <Label htmlFor="step">Step</Label>
+                      <Input
+                        id="step"
+                        type="number"
+                        step="0.01"
+                        value={selectedField.step || (selectedField.componentId === "currency" ? 0.01 : 0.1)}
+                        onChange={(e) => updateFieldSetting("step", parseFloat(e.target.value) || 0.01)}
+                      />
                     </div>
                   )}
 
