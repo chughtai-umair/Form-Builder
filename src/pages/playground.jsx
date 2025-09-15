@@ -26,6 +26,25 @@ import { CalendarIcon } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragOverlay,
+  rectIntersection,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+  rectSortingStrategy,
+} from "@dnd-kit/sortable";
+import { useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import {
   Type,
   Mail,
   Lock,
@@ -48,6 +67,7 @@ import {
   Globe,
   DollarSign,
   Percent,
+  GripVertical,
 } from "lucide-react";
 
 // Form Builder Components List - Enhanced with all Shadcn UI components
@@ -72,11 +92,150 @@ const formComponents = [
   { id: "percentage", name: "Percentage", icon: Percent, type: "input" },
 ];
 
+// Sortable Field Item Component for Drag and Drop with Grid Support
+function SortableFieldItem({
+  field,
+  isSelected,
+  onSelect,
+  onRemove,
+  children,
+  isInRow = false,
+  rowPosition = 0,
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: field.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+
+  // Calculate width based on position in row (1 field = full width, 2 fields = half width, 3 fields = third width)
+  const getFieldWidth = () => {
+    if (!isInRow) return "w-full";
+    if (rowPosition === 1) return "w-full";
+    if (rowPosition === 2) return "w-1/2";
+    return "w-1/3";
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={cn(
+        "relative group border rounded-lg p-3 cursor-pointer transition-colors",
+        getFieldWidth(),
+        isSelected
+          ? "border-primary bg-primary/5"
+          : "border-gray-200 hover:border-gray-300",
+        isDragging && "opacity-50 scale-105"
+      )}
+      onClick={() => onSelect(field)}
+    >
+      {/* Drag Handle */}
+      <div
+        {...attributes}
+        {...listeners}
+        className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing z-10"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <GripVertical className="h-4 w-4 text-muted-foreground" />
+      </div>
+
+      {/* Field Content */}
+      <div className="pr-8">
+        <div className="flex justify-between items-start mb-2">
+          <Label className="font-medium text-sm">{field.label}</Label>
+          <div className="flex items-center space-x-2">
+            {field.required && (
+              <Badge variant="secondary" className="text-xs">
+                Required
+              </Badge>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                onRemove(field.id);
+              }}
+              className="h-6 w-6 p-0 text-destructive hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+            >
+              ×
+            </Button>
+          </div>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
 export function Playground() {
   const [selectedFields, setSelectedFields] = useState([]);
   const [selectedField, setSelectedField] = useState(null);
   const [activeTab, setActiveTab] = useState("edit");
   const [dateValues, setDateValues] = useState({});
+  const [activeId, setActiveId] = useState(null);
+
+  // Helper function to organize fields into rows (max 3 per row, min 1 per row)
+  const organizeFieldsIntoRows = (fields) => {
+    const rows = [];
+    const fieldsPerRow = 3;
+
+    for (let i = 0; i < fields.length; i += fieldsPerRow) {
+      const row = fields.slice(i, i + fieldsPerRow);
+      rows.push(row);
+    }
+
+    return rows;
+  };
+  // Drag and Drop sensors with restricted area
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  // Handle drag start - set active item
+  const handleDragStart = (event) => {
+    setActiveId(event.active.id);
+  };
+  // Handle drag end - reorder fields with boundary restrictions
+  const handleDragEnd = (event) => {
+    const { active, over } = event;
+    setActiveId(null);
+
+    // Check if over is not null and has a valid id
+    if (active && over && active.id !== over.id) {
+      setSelectedFields((items) => {
+        const oldIndex = items.findIndex((item) => item.id === active.id);
+        const newIndex = items.findIndex((item) => item.id === over.id);
+
+        // Only proceed if both indices are valid
+        if (oldIndex !== -1 && newIndex !== -1) {
+          return arrayMove(items, oldIndex, newIndex);
+        }
+        return items; // Return unchanged if indices are invalid
+      });
+    }
+  };
+
+  // Handle drag cancel
+  const handleDragCancel = () => {
+    setActiveId(null);
+  };
 
   // Add field to center area
   const addField = (component) => {
@@ -88,12 +247,20 @@ export function Playground() {
       label: component.name,
       placeholder: `Enter ${component.name.toLowerCase()}`,
       required: false,
-      options: component.id === "select" ? ["Option 1", "Option 2"] : 
-               component.id === "radio" ? ["Option 1", "Option 2"] : [],
+      options:
+        component.id === "select"
+          ? ["Option 1", "Option 2"]
+          : component.id === "radio"
+          ? ["Option 1", "Option 2"]
+          : [],
       min: component.id === "rating" ? 1 : undefined,
       max: component.id === "rating" ? 5 : undefined,
-      step: component.id === "percentage" ? 0.1 : 
-            component.id === "currency" ? 0.01 : undefined,
+      step:
+        component.id === "percentage"
+          ? 0.1
+          : component.id === "currency"
+          ? 0.01
+          : undefined,
     };
     setSelectedFields([...selectedFields, newField]);
   };
@@ -161,64 +328,95 @@ export function GeneratedForm() {
     }
 
     // Determine which components are actually used
-    const usedTypes = new Set(selectedFields.map(field => field.type));
-    const hasDateField = selectedFields.some(field => field.type === "date");
-    const hasSelectField = selectedFields.some(field => field.type === "select");
-    const hasTextareaField = selectedFields.some(field => field.type === "textarea");
-    const hasCheckboxField = selectedFields.some(field => field.type === "checkbox");
-    const hasRadioField = selectedFields.some(field => field.type === "radio");
-    const hasSwitchField = selectedFields.some(field => field.type === "switch");
-    const hasFileField = selectedFields.some(field => field.type === "file");
-    const hasRatingField = selectedFields.some(field => field.type === "rating");
+    const usedTypes = new Set(selectedFields.map((field) => field.type));
+    const hasDateField = selectedFields.some((field) => field.type === "date");
+    const hasSelectField = selectedFields.some(
+      (field) => field.type === "select"
+    );
+    const hasTextareaField = selectedFields.some(
+      (field) => field.type === "textarea"
+    );
+    const hasCheckboxField = selectedFields.some(
+      (field) => field.type === "checkbox"
+    );
+    const hasRadioField = selectedFields.some(
+      (field) => field.type === "radio"
+    );
+    const hasSwitchField = selectedFields.some(
+      (field) => field.type === "switch"
+    );
+    const hasFileField = selectedFields.some((field) => field.type === "file");
+    const hasRatingField = selectedFields.some(
+      (field) => field.type === "rating"
+    );
 
     // Build imports array based on what's actually used
     const imports = [];
-    
+
     // Always needed imports
     imports.push('import { Button } from "@/components/ui/button";');
     imports.push('import { Label } from "@/components/ui/label";');
-    imports.push('import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";');
-    
+    imports.push(
+      'import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";'
+    );
+
     // Conditional imports - Smart import system
     if (usedTypes.has("input") || hasFileField || hasRatingField) {
       imports.push('import { Input } from "@/components/ui/input";');
     }
-    
+
     if (hasTextareaField) {
       imports.push('import { Textarea } from "@/components/ui/textarea";');
     }
-    
+
     if (hasCheckboxField) {
       imports.push('import { Checkbox } from "@/components/ui/checkbox";');
     }
-    
+
     if (hasRadioField) {
-      imports.push('import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";');
+      imports.push(
+        'import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";'
+      );
     }
-    
+
     if (hasSwitchField) {
       imports.push('import { Switch } from "@/components/ui/switch";');
     }
-    
+
     if (hasSelectField) {
-      imports.push('import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";');
+      imports.push(
+        'import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";'
+      );
     }
-    
+
     if (hasDateField) {
       imports.push('import { Calendar } from "@/components/ui/calendar";');
-      imports.push('import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";');
+      imports.push(
+        'import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";'
+      );
       imports.push('import { CalendarIcon } from "lucide-react";');
       imports.push('import { format } from "date-fns";');
       imports.push('import { cn } from "@/lib/utils";');
     }
-    
+
     if (hasRatingField) {
       imports.push('import { Star } from "lucide-react";');
     }
-    
-    imports.push('import { useState } from "react";');
 
-    const importSection = imports.join('\n');
+    imports.push('import { useState } from "react";');
+    const importSection = imports.join("\n");
+
+    // Helper function for code generation
+    const organizeFieldsIntoRowsForCode = (fields) => {
+      const rows = [];
+      const fieldsPerRow = 3;
+
+      for (let i = 0; i < fields.length; i += fieldsPerRow) {
+        rows.push(fields.slice(i, i + fieldsPerRow));
+      }
+
+      return rows;
+    };
 
     // Component start with smart state management
     let componentStart = `
@@ -247,104 +445,151 @@ export function GeneratedForm() {`;
       }
     });`;
     }
-
     componentStart += `
     
     console.log('Form Data:', data);
   };
 
+  // Helper function to organize fields into rows (max 3 per row)
+  const organizeFieldsIntoRows = (fields) => {
+    const rows = [];
+    const fieldsPerRow = 3;
+    
+    for (let i = 0; i < fields.length; i += fieldsPerRow) {
+      rows.push(fields.slice(i, i + fieldsPerRow));
+    }
+    
+    return rows;
+  };
+
+  const fieldRows = organizeFieldsIntoRows([${selectedFields
+    .map((field) => `"${field.id}"`)
+    .join(", ")}]);
+
   return (
-    <Card className="w-full max-w-md mx-auto">
+    <Card className="w-full max-w-4xl mx-auto py-7 px-2">
       <CardHeader>
         <CardTitle>Generated Form</CardTitle>
       </CardHeader>
       <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-4">`;
+        <form onSubmit={handleSubmit} className="space-y-4">`; // Generate fields with proper Shadcn components in grid layout
+    const generateFieldWithWidth = (field, fieldsInRow) => {
+      const widthClass =
+        fieldsInRow === 1 ? "w-full" : fieldsInRow === 2 ? "w-1/2" : "w-1/3";
 
-    // Generate fields with proper Shadcn components
-    const fields = selectedFields
-      .map((field) => {
+      const fieldContent = (() => {
         switch (field.type) {
           case "input":
-            const inputType = field.componentId === "currency" ? "number" : 
-                            field.componentId === "percentage" ? "number" : 
-                            field.componentId;
-            const stepAttr = field.componentId === "currency" ? ' step="0.01"' :
-                           field.componentId === "percentage" ? ' step="0.1" max="100"' : '';
-            
-            return `          <div className="space-y-2">
-            <Label htmlFor="${field.id}">${field.label}${field.required ? " *" : ""}</Label>
+            const inputType =
+              field.componentId === "currency"
+                ? "number"
+                : field.componentId === "percentage"
+                ? "number"
+                : field.componentId;
+            const stepAttr =
+              field.componentId === "currency"
+                ? ' step="0.01"'
+                : field.componentId === "percentage"
+                ? ' step="0.1" max="100"'
+                : "";
+
+            return `<div className="space-y-2">
+            <Label htmlFor="${field.id}">${field.label}${
+              field.required ? " *" : ""
+            }</Label>
             <Input
               id="${field.id}"
               name="${field.id}"
               type="${inputType}"
-              placeholder="${field.placeholder}"${stepAttr}${field.required ? '\n              required' : ''}
+              placeholder="${field.placeholder}"${stepAttr}${
+              field.required ? "\n              required" : ""
+            }
             />
           </div>`;
-          
+
           case "textarea":
-            return `          <div className="space-y-2">
-            <Label htmlFor="${field.id}">${field.label}${field.required ? " *" : ""}</Label>
+            return `<div className="space-y-2">
+            <Label htmlFor="${field.id}">${field.label}${
+              field.required ? " *" : ""
+            }</Label>
             <Textarea
               id="${field.id}"
               name="${field.id}"
               placeholder="${field.placeholder}"
-              rows={3}${field.required ? '\n              required' : ''}
+              rows={3}${field.required ? "\n              required" : ""}
             />
           </div>`;
-          
+
           case "select":
-            const selectOptions = field.options?.map(option => 
-              `<SelectItem value="${option}">${option}</SelectItem>`
-            ).join('\n                ') || '';
-            
-            return `          <div className="space-y-2">
-            <Label htmlFor="${field.id}">${field.label}${field.required ? " *" : ""}</Label>
-            <Select name="${field.id}"${field.required ? ' required' : ''}>
+            const selectOptions =
+              field.options
+                ?.map(
+                  (option) =>
+                    `<SelectItem value="${option}">${option}</SelectItem>`
+                )
+                .join("\n                ") || "";
+
+            return `<div className="space-y-2">
+            <Label htmlFor="${field.id}">${field.label}${
+              field.required ? " *" : ""
+            }</Label>
+            <Select name="${field.id}"${field.required ? " required" : ""}>
               <SelectTrigger>
-                <SelectValue placeholder="${field.placeholder || "Select an option"}" />
+                <SelectValue placeholder="${
+                  field.placeholder || "Select an option"
+                }" />
               </SelectTrigger>
               <SelectContent>
                 ${selectOptions}
               </SelectContent>
             </Select>
           </div>`;
-          
+
           case "checkbox":
-            return `          <div className="flex items-center space-x-2">
+            return `<div className="flex items-center space-x-2">
             <Checkbox
               id="${field.id}"
-              name="${field.id}"${field.required ? '\n              required' : ''}
+              name="${field.id}"${
+              field.required ? "\n              required" : ""
+            }
             />
-            <Label htmlFor="${field.id}">${field.label}${field.required ? " *" : ""}</Label>
+            <Label htmlFor="${field.id}">${field.label}${
+              field.required ? " *" : ""
+            }</Label>
           </div>`;
-          
+
           case "radio":
-            const radioOptions = field.options?.map((option, index) => 
-              `<div className="flex items-center space-x-2">
+            const radioOptions =
+              field.options
+                ?.map(
+                  (option, index) =>
+                    `<div className="flex items-center space-x-2">
                 <RadioGroupItem value="${option}" id="${field.id}_${index}" />
                 <Label htmlFor="${field.id}_${index}">${option}</Label>
               </div>`
-            ).join('\n              ') || '';
-            
-            return `          <div className="space-y-2">
+                )
+                .join("\n              ") || "";
+
+            return `<div className="space-y-2">
             <Label>${field.label}${field.required ? " *" : ""}</Label>
-            <RadioGroup name="${field.id}"${field.required ? ' required' : ''}>
+            <RadioGroup name="${field.id}"${field.required ? " required" : ""}>
               ${radioOptions}
             </RadioGroup>
           </div>`;
-          
+
           case "switch":
-            return `          <div className="flex items-center space-x-2">
+            return `<div className="flex items-center space-x-2">
             <Switch
               id="${field.id}"
               name="${field.id}"
             />
-            <Label htmlFor="${field.id}">${field.label}${field.required ? " *" : ""}</Label>
+            <Label htmlFor="${field.id}">${field.label}${
+              field.required ? " *" : ""
+            }</Label>
           </div>`;
-          
+
           case "date":
-            return `          <div className="space-y-2">
+            return `<div className="space-y-2">
             <Label>${field.label}${field.required ? " *" : ""}</Label>
             <Popover>
               <PopoverTrigger asChild>
@@ -356,32 +601,38 @@ export function GeneratedForm() {`;
                   )}
                 >
                   <CalendarIcon className="mr-2 h-4 w-4" />
-                  {dateValues["${field.id}"] ? format(dateValues["${field.id}"], "PPP") : "Pick a date"}
+                  {dateValues["${field.id}"] ? format(dateValues["${
+              field.id
+            }"], "PPP") : "Pick a date"}
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-auto p-0">
                 <Calendar
                   mode="single"
                   selected={dateValues["${field.id}"]}
-                  onSelect={(date) => setDateValues(prev => ({ ...prev, "${field.id}": date }))}
+                  onSelect={(date) => setDateValues(prev => ({ ...prev, "${
+                    field.id
+                  }": date }))}
                   initialFocus
                 />
               </PopoverContent>
             </Popover>
           </div>`;
-          
+
           case "file":
-            return `          <div className="space-y-2">
-            <Label htmlFor="${field.id}">${field.label}${field.required ? " *" : ""}</Label>
+            return `<div className="space-y-2">
+            <Label htmlFor="${field.id}">${field.label}${
+              field.required ? " *" : ""
+            }</Label>
             <Input
               id="${field.id}"
               name="${field.id}"
-              type="file"${field.required ? '\n              required' : ''}
+              type="file"${field.required ? "\n              required" : ""}
             />
           </div>`;
-          
+
           case "rating":
-            return `          <div className="space-y-2">
+            return `<div className="space-y-2">
             <Label>${field.label}${field.required ? " *" : ""}</Label>
             <div className="flex space-x-1">
               {Array.from({ length: ${field.max || 5} }, (_, i) => (
@@ -389,9 +640,9 @@ export function GeneratedForm() {`;
               ))}
             </div>
           </div>`;
-          
+
           default:
-            return `          <div className="space-y-2">
+            return `<div className="space-y-2">
             <Label htmlFor="${field.id}">${field.label}</Label>
             <Input
               id="${field.id}"
@@ -400,12 +651,27 @@ export function GeneratedForm() {`;
             />
           </div>`;
         }
+      })();
+
+      return `            <div className="${widthClass}">
+              ${fieldContent}
+            </div>`;
+    }; // Organize fields into rows and generate the layout
+    const rows = organizeFieldsIntoRowsForCode(selectedFields);
+    const fields = rows
+      .map((row) => {
+        const rowFields = row
+          .map((field) => generateFieldWithWidth(field, row.length))
+          .join("\n");
+        return `          <div className="flex gap-4 w-full">
+${rowFields}
+          </div>`;
       })
       .join("\n\n");
 
     const componentEnd = `
           
-          <Button type="submit" className="w-full">
+          <Button type="submit" className="mt-4">
             Submit
           </Button>
         </form>
@@ -418,24 +684,37 @@ export function GeneratedForm() {`;
   };
   // Add option to select/radio field
   const addOption = () => {
-    if (selectedField && (selectedField.type === "select" || selectedField.type === "radio")) {
+    if (
+      selectedField &&
+      (selectedField.type === "select" || selectedField.type === "radio")
+    ) {
       const currentLength = selectedField.options?.length || 0;
-      const newOptions = [...(selectedField.options || []), `Option ${currentLength + 1}`];
+      const newOptions = [
+        ...(selectedField.options || []),
+        `Option ${currentLength + 1}`,
+      ];
       updateFieldSetting("options", newOptions);
     }
   };
 
   // Remove option from select/radio field
   const removeOption = (index) => {
-    if (selectedField && (selectedField.type === "select" || selectedField.type === "radio")) {
-      const newOptions = selectedField.options?.filter((_, i) => i !== index) || [];
+    if (
+      selectedField &&
+      (selectedField.type === "select" || selectedField.type === "radio")
+    ) {
+      const newOptions =
+        selectedField.options?.filter((_, i) => i !== index) || [];
       updateFieldSetting("options", newOptions);
     }
   };
 
   // Update option value
   const updateOption = (index, value) => {
-    if (selectedField && (selectedField.type === "select" || selectedField.type === "radio")) {
+    if (
+      selectedField &&
+      (selectedField.type === "select" || selectedField.type === "radio")
+    ) {
       const newOptions = [...(selectedField.options || [])];
       newOptions[index] = value;
       updateFieldSetting("options", newOptions);
@@ -446,15 +725,25 @@ export function GeneratedForm() {`;
   const renderFormField = (field) => {
     switch (field.type) {
       case "input":
-        const inputType = field.componentId === "currency" ? "number" : 
-                         field.componentId === "percentage" ? "number" : 
-                         field.componentId;
-        const stepAttr = field.componentId === "currency" ? { step: "0.01" } :
-                        field.componentId === "percentage" ? { step: "0.1", max: "100" } : {};
-        
+        const inputType =
+          field.componentId === "currency"
+            ? "number"
+            : field.componentId === "percentage"
+            ? "number"
+            : field.componentId;
+        const stepAttr =
+          field.componentId === "currency"
+            ? { step: "0.01" }
+            : field.componentId === "percentage"
+            ? { step: "0.1", max: "100" }
+            : {};
+
         return (
           <div className="space-y-2">
-            <Label htmlFor={field.id}>{field.label}{field.required && " *"}</Label>
+            <Label htmlFor={field.id}>
+              {field.label}
+              {field.required && " *"}
+            </Label>
             <Input
               id={field.id}
               type={inputType}
@@ -464,11 +753,14 @@ export function GeneratedForm() {`;
             />
           </div>
         );
-        
+
       case "textarea":
         return (
           <div className="space-y-2">
-            <Label htmlFor={field.id}>{field.label}{field.required && " *"}</Label>
+            <Label htmlFor={field.id}>
+              {field.label}
+              {field.required && " *"}
+            </Label>
             <Textarea
               id={field.id}
               placeholder={field.placeholder}
@@ -477,39 +769,49 @@ export function GeneratedForm() {`;
             />
           </div>
         );
-        
+
       case "select":
         return (
           <div className="space-y-2">
-            <Label htmlFor={field.id}>{field.label}{field.required && " *"}</Label>
+            <Label htmlFor={field.id}>
+              {field.label}
+              {field.required && " *"}
+            </Label>
             <Select required={field.required}>
               <SelectTrigger>
-                <SelectValue placeholder={field.placeholder || "Select an option"} />
+                <SelectValue
+                  placeholder={field.placeholder || "Select an option"}
+                />
               </SelectTrigger>
               <SelectContent>
                 {field.options?.map((option, index) => (
-                  <SelectItem key={index} value={option}>{option}</SelectItem>
+                  <SelectItem key={index} value={option}>
+                    {option}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
         );
-        
+
       case "checkbox":
         return (
           <div className="flex items-center space-x-2">
-            <Checkbox
-              id={field.id}
-              required={field.required}
-            />
-            <Label htmlFor={field.id}>{field.label}{field.required && " *"}</Label>
+            <Checkbox id={field.id} required={field.required} />
+            <Label htmlFor={field.id}>
+              {field.label}
+              {field.required && " *"}
+            </Label>
           </div>
         );
-        
+
       case "radio":
         return (
           <div className="space-y-2">
-            <Label>{field.label}{field.required && " *"}</Label>
+            <Label>
+              {field.label}
+              {field.required && " *"}
+            </Label>
             <RadioGroup required={field.required}>
               {field.options?.map((option, index) => (
                 <div key={index} className="flex items-center space-x-2">
@@ -520,19 +822,25 @@ export function GeneratedForm() {`;
             </RadioGroup>
           </div>
         );
-        
+
       case "switch":
         return (
           <div className="flex items-center space-x-2">
             <Switch id={field.id} />
-            <Label htmlFor={field.id}>{field.label}{field.required && " *"}</Label>
+            <Label htmlFor={field.id}>
+              {field.label}
+              {field.required && " *"}
+            </Label>
           </div>
         );
-        
+
       case "date":
         return (
           <div className="space-y-2">
-            <Label>{field.label}{field.required && " *"}</Label>
+            <Label>
+              {field.label}
+              {field.required && " *"}
+            </Label>
             <Popover>
               <PopoverTrigger asChild>
                 <Button
@@ -543,53 +851,59 @@ export function GeneratedForm() {`;
                   )}
                 >
                   <CalendarIcon className="mr-2 h-4 w-4" />
-                  {dateValues[field.id] ? format(dateValues[field.id], "PPP") : "Pick a date"}
+                  {dateValues[field.id]
+                    ? format(dateValues[field.id], "PPP")
+                    : "Pick a date"}
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-auto p-0">
                 <Calendar
                   mode="single"
                   selected={dateValues[field.id]}
-                  onSelect={(date) => setDateValues(prev => ({ ...prev, [field.id]: date }))}
+                  onSelect={(date) =>
+                    setDateValues((prev) => ({ ...prev, [field.id]: date }))
+                  }
                   initialFocus
                 />
               </PopoverContent>
             </Popover>
           </div>
         );
-        
+
       case "file":
         return (
           <div className="space-y-2">
-            <Label htmlFor={field.id}>{field.label}{field.required && " *"}</Label>
-            <Input
-              id={field.id}
-              type="file"
-              required={field.required}
-            />
+            <Label htmlFor={field.id}>
+              {field.label}
+              {field.required && " *"}
+            </Label>
+            <Input id={field.id} type="file" required={field.required} />
           </div>
         );
-        
+
       case "rating":
         return (
           <div className="space-y-2">
-            <Label>{field.label}{field.required && " *"}</Label>
+            <Label>
+              {field.label}
+              {field.required && " *"}
+            </Label>
             <div className="flex space-x-1">
               {Array.from({ length: field.max || 5 }, (_, i) => (
-                <Star key={i} className="h-5 w-5 text-yellow-400 cursor-pointer" />
+                <Star
+                  key={i}
+                  className="h-5 w-5 text-yellow-400 cursor-pointer"
+                />
               ))}
             </div>
           </div>
         );
-        
+
       default:
         return (
           <div className="space-y-2">
             <Label htmlFor={field.id}>{field.label}</Label>
-            <Input
-              id={field.id}
-              placeholder={field.placeholder}
-            />
+            <Input id={field.id} placeholder={field.placeholder} />
           </div>
         );
     }
@@ -655,46 +969,65 @@ export function GeneratedForm() {`;
                 {selectedFields.length === 0 ? (
                   <div className="text-center py-12 text-muted-foreground">
                     <Type className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                    <p>No fields added yet</p>
+                    <p>No fields added yet</p>{" "}
                     <p className="text-sm">
                       Click on components from the left to add them
                     </p>
                   </div>
                 ) : (
-                  selectedFields.map((field) => (
-                    <div
-                      key={field.id}
-                      className={`p-3 border rounded-lg cursor-pointer transition-colors ${
-                        selectedField?.id === field.id
-                          ? "border-primary bg-primary/5"
-                          : "hover:bg-accent"
-                      }`}
-                      onClick={() => selectField(field)}
+                  <div className="space-y-4">
+                    <DndContext
+                      sensors={sensors}
+                      collisionDetection={rectIntersection}
+                      onDragStart={handleDragStart}
+                      onDragEnd={handleDragEnd}
+                      onDragCancel={handleDragCancel}
                     >
-                      <div className="flex justify-between items-start mb-2">
-                        <Label className="font-medium">{field.label}</Label>
-                        <div className="flex items-center space-x-2">
-                          {field.required && (
-                            <Badge variant="secondary" className="text-xs">
-                              Required
-                            </Badge>
+                      <SortableContext
+                        items={selectedFields.map((field) => field.id)}
+                        strategy={rectSortingStrategy}
+                      >
+                        <div className="space-y-3 p-4 border-2 border-dashed border-gray-200 rounded-lg min-h-[300px]">
+                          {organizeFieldsIntoRows(selectedFields).map(
+                            (row, rowIndex) => (
+                              <div
+                                key={rowIndex}
+                                className="flex gap-3 w-full min-h-[80px]"
+                              >
+                                {row.map((field) => (
+                                  <SortableFieldItem
+                                    key={field.id}
+                                    field={field}
+                                    isSelected={selectedField?.id === field.id}
+                                    onSelect={selectField}
+                                    onRemove={removeField}
+                                    isInRow={true}
+                                    rowPosition={row.length}
+                                  >
+                                    {renderFormField(field)}
+                                  </SortableFieldItem>
+                                ))}
+                                {/* Empty space for dropping fields in this row */}
+                                {row.length < 3 && (
+                                  <div
+                                    className={`border-2 border-dashed border-gray-300 rounded-lg p-3 ${
+                                      row.length === 1 ? "w-1/2" : "w-1/3"
+                                    } flex items-center justify-center text-gray-400 text-sm min-h-[70px]`}
+                                  >
+                                    Drop field here
+                                  </div>
+                                )}
+                              </div>
+                            )
                           )}
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              removeField(field.id);
-                            }}
-                            className="h-6 w-6 p-0 text-destructive hover:text-destructive"
-                          >
-                            ×
-                          </Button>
+                          {/* Drop zone for new row */}
+                          <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center text-gray-400 text-sm min-h-[80px] flex items-center justify-center">
+                            Drop fields here to create a new row
+                          </div>
                         </div>
-                      </div>
-                      {renderFormField(field)}
-                    </div>
-                  ))
+                      </SortableContext>
+                    </DndContext>
+                  </div>
                 )}
 
                 {selectedFields.length > 0 && (
@@ -753,7 +1086,6 @@ export function GeneratedForm() {`;
                       className="mt-1"
                     />
                   </div>
-
                   <div>
                     <Label htmlFor="placeholder">Placeholder</Label>
                     <Input
@@ -764,17 +1096,20 @@ export function GeneratedForm() {`;
                       }
                       className="mt-1"
                     />
-                  </div>                  <div className="flex items-center space-x-2">
+                  </div>{" "}
+                  <div className="flex items-center space-x-2">
                     <Checkbox
                       id="required"
                       checked={selectedField.required}
-                      onCheckedChange={(checked) => updateFieldSetting("required", checked)}
+                      onCheckedChange={(checked) =>
+                        updateFieldSetting("required", checked)
+                      }
                     />
                     <Label htmlFor="required">Required Field</Label>
                   </div>
-
                   {/* Options for select and radio fields */}
-                  {(selectedField.type === "select" || selectedField.type === "radio") && (
+                  {(selectedField.type === "select" ||
+                    selectedField.type === "radio") && (
                     <div>
                       <div className="flex justify-between items-center mb-2">
                         <Label>Options</Label>
@@ -787,7 +1122,9 @@ export function GeneratedForm() {`;
                           <div key={index} className="flex gap-2">
                             <Input
                               value={option}
-                              onChange={(e) => updateOption(index, e.target.value)}
+                              onChange={(e) =>
+                                updateOption(index, e.target.value)
+                              }
                               placeholder={`Option ${index + 1}`}
                             />
                             <Button
@@ -802,7 +1139,6 @@ export function GeneratedForm() {`;
                       </div>
                     </div>
                   )}
-
                   {/* Rating field settings */}
                   {selectedField.type === "rating" && (
                     <>
@@ -812,7 +1148,12 @@ export function GeneratedForm() {`;
                           id="min"
                           type="number"
                           value={selectedField.min || 1}
-                          onChange={(e) => updateFieldSetting("min", parseInt(e.target.value) || 1)}
+                          onChange={(e) =>
+                            updateFieldSetting(
+                              "min",
+                              parseInt(e.target.value) || 1
+                            )
+                          }
                         />
                       </div>
                       <div>
@@ -821,26 +1162,40 @@ export function GeneratedForm() {`;
                           id="max"
                           type="number"
                           value={selectedField.max || 5}
-                          onChange={(e) => updateFieldSetting("max", parseInt(e.target.value) || 5)}
+                          onChange={(e) =>
+                            updateFieldSetting(
+                              "max",
+                              parseInt(e.target.value) || 5
+                            )
+                          }
                         />
                       </div>
                     </>
                   )}
-
                   {/* Step for currency and percentage fields */}
-                  {(selectedField.componentId === "currency" || selectedField.componentId === "percentage") && (
+                  {(selectedField.componentId === "currency" ||
+                    selectedField.componentId === "percentage") && (
                     <div>
                       <Label htmlFor="step">Step</Label>
                       <Input
                         id="step"
                         type="number"
                         step="0.01"
-                        value={selectedField.step || (selectedField.componentId === "currency" ? 0.01 : 0.1)}
-                        onChange={(e) => updateFieldSetting("step", parseFloat(e.target.value) || 0.01)}
+                        value={
+                          selectedField.step ||
+                          (selectedField.componentId === "currency"
+                            ? 0.01
+                            : 0.1)
+                        }
+                        onChange={(e) =>
+                          updateFieldSetting(
+                            "step",
+                            parseFloat(e.target.value) || 0.01
+                          )
+                        }
                       />
                     </div>
                   )}
-
                   <div className="border-t pt-4">
                     <Label className="text-sm text-muted-foreground">
                       Field Type

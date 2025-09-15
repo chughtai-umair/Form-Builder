@@ -4,6 +4,7 @@ import { Navbar } from "@/components/navbar";
 import { ThemeProvider } from "@/components/theme-provider";
 import { HomePage } from "@/pages/home-page";
 import { Playground } from "@/pages/playground";
+import { Check } from "@/pages/check";
 
 function App() {
   return (
@@ -14,6 +15,7 @@ function App() {
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/playground" element={<Playground />} />
+          <Route path="/templates" element={<Check />} />
         </Routes>
         {/* </div> */}
       </Router>
