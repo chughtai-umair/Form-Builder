@@ -187,7 +187,7 @@ export function Playground() {
   // Helper function to organize fields into rows (max 3 per row, min 1 per row)
   const organizeFieldsIntoRows = (fields) => {
     const rows = [];
-    const fieldsPerRow = 3;
+    const fieldsPerRow = 2;
 
     for (let i = 0; i < fields.length; i += fieldsPerRow) {
       const row = fields.slice(i, i + fieldsPerRow);
@@ -1010,7 +1010,7 @@ ${rowFields}
                                   </SortableFieldItem>
                                 ))}
                                 {/* Empty space for dropping fields in this row */}
-                                {row.length < 3 && (
+                                {row.length < 2 && (
                                   <div
                                     className={`border-2 border-dashed border-gray-300 rounded-lg p-3 ${
                                       row.length === 1 ? "w-1/2" : "w-1/3"
